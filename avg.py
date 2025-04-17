@@ -4,7 +4,6 @@ import plotly.graph_objects as go
 import os
 
 # File setup
-data_folder = "/home/ubuntu/Desktop/nokia"
 file_paths = [
     "1.csv", "2.csv", "3.csv", "4.csv", "5.csv", "6.csv", "7.csv",
     *[f"synthetic_full_dataset_{i}.csv" for i in range(8, 32)]
@@ -12,7 +11,7 @@ file_paths = [
 
 dataframes = []
 for path in file_paths:
-    full_path = os.path.join(data_folder, path)
+    full_path = path
     try:
         df = pd.read_csv(full_path)
         if '#028_Torque3' in df.columns and '#032_Angle3' in df.columns:
@@ -40,29 +39,27 @@ normal_data = df_all[df_all['anomaly'] == 1]
 avg_torque = normal_data['#028_Torque3'].mean()
 avg_angle = normal_data['#032_Angle3'].mean()
 
-# --- THRESHOLD OPTIMIZATION ---
-torque_dev = 1.0  # start small
-angle_dev = 5.0
+# --- IMPROVED THRESHOLD OPTIMIZATION ---
+torque_dev = 0.1
+angle_dev = 0.1
+max_torque_dev = 500
+max_angle_dev = 500
+min_torque_dev = 0.5
+min_angle_dev = 1.0
 
 print("\n--- Threshold Optimization ---")
-for i in range(10):
+for i in range(15):
     t_low, t_high = avg_torque - torque_dev, avg_torque + torque_dev
     a_low, a_high = avg_angle - angle_dev, avg_angle + angle_dev
 
     out_t = ((df_all['#028_Torque3'] < t_low) | (df_all['#028_Torque3'] > t_high)).sum()
     out_a = ((df_all['#032_Angle3'] < a_low) | (df_all['#032_Angle3'] > a_high)).sum()
 
-    print(f"Iteration {i+1}: Torque Outliers = {out_t}, Angle Outliers = {out_a}")
+    print(f"Iteration {i+1:2}: Torque Outliers = {out_t:4}, Angle Outliers = {out_a:4} | "
+          f"T_dev = {torque_dev:.2f}, A_dev = {angle_dev:.2f}")
 
-    if out_t > 10:
-        torque_dev += 0.3
-    else:
-        torque_dev -= 0.2
-
-    if out_a > 10:
-        angle_dev += 0.5
-    else:
-        angle_dev -= 0.3
+    torque_dev = min(max(torque_dev + (10 if out_t > 10 else -5), min_torque_dev), max_torque_dev)
+    angle_dev = min(max(angle_dev + (25 if out_a > 10 else -10), min_angle_dev), max_angle_dev)
 
 # Final threshold bounds
 torque_low, torque_high = avg_torque - torque_dev, avg_torque + torque_dev
@@ -73,15 +70,7 @@ print(f"Final Angle Range: {angle_low:.2f} to {angle_high:.2f}")
 
 # Range classification
 def classify_ranges(df, column, low, high):
-    conditions = []
-    for val in df[column]:
-        if val < low:
-            conditions.append('Below')
-        elif val > high:
-            conditions.append('Above')
-        else:
-            conditions.append('Within')
-    return conditions
+    return df[column].apply(lambda x: 'Below' if x < low else 'Above' if x > high else 'Within')
 
 df_all['torque_range'] = classify_ranges(df_all, '#028_Torque3', torque_low, torque_high)
 df_all['angle_range'] = classify_ranges(df_all, '#032_Angle3', angle_low, angle_high)
@@ -98,7 +87,7 @@ def build_chart(df, value_col, range_col, title):
     pivot = grouped.pivot(index='source_file', columns=range_col, values=value_col).fillna(0)
 
     fig = go.Figure()
-    for category, color in zip(['Below', 'Within', 'Above'], ['red', 'black', 'green']):
+    for category, color in zip(['Below', 'Within', 'Above'], ['red', 'green', 'black']):
         if category in pivot.columns:
             fig.add_trace(go.Bar(
                 x=pivot.index,
