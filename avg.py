@@ -40,15 +40,36 @@ normal_data = df_all[df_all['anomaly'] == 1]
 avg_torque = normal_data['#028_Torque3'].mean()
 avg_angle = normal_data['#032_Angle3'].mean()
 
-# Adjusted thresholds
-deviation_torque = 1.5
-deviation_angle = 10.0
+# --- THRESHOLD OPTIMIZATION ---
+torque_dev = 1.0  # start small
+angle_dev = 5.0
 
-torque_low, torque_high = avg_torque - deviation_torque, avg_torque + deviation_torque
-angle_low, angle_high = avg_angle - deviation_angle, avg_angle + deviation_angle
+print("\n--- Threshold Optimization ---")
+for i in range(10):
+    t_low, t_high = avg_torque - torque_dev, avg_torque + torque_dev
+    a_low, a_high = avg_angle - angle_dev, avg_angle + angle_dev
 
-print(f"\nAverage Torque: {avg_torque:.2f} | Range: {torque_low:.2f} - {torque_high:.2f}")
-print(f"Average Angle: {avg_angle:.2f} | Range: {angle_low:.2f} - {angle_high:.2f}")
+    out_t = ((df_all['#028_Torque3'] < t_low) | (df_all['#028_Torque3'] > t_high)).sum()
+    out_a = ((df_all['#032_Angle3'] < a_low) | (df_all['#032_Angle3'] > a_high)).sum()
+
+    print(f"Iteration {i+1}: Torque Outliers = {out_t}, Angle Outliers = {out_a}")
+
+    if out_t > 10:
+        torque_dev += 0.3
+    else:
+        torque_dev -= 0.2
+
+    if out_a > 10:
+        angle_dev += 0.5
+    else:
+        angle_dev -= 0.3
+
+# Final threshold bounds
+torque_low, torque_high = avg_torque - torque_dev, avg_torque + torque_dev
+angle_low, angle_high = avg_angle - angle_dev, avg_angle + angle_dev
+
+print(f"\nFinal Torque Range: {torque_low:.2f} to {torque_high:.2f}")
+print(f"Final Angle Range: {angle_low:.2f} to {angle_high:.2f}")
 
 # Range classification
 def classify_ranges(df, column, low, high):
@@ -65,14 +86,13 @@ def classify_ranges(df, column, low, high):
 df_all['torque_range'] = classify_ranges(df_all, '#028_Torque3', torque_low, torque_high)
 df_all['angle_range'] = classify_ranges(df_all, '#032_Angle3', angle_low, angle_high)
 
-# Print classification counts
+# Print range stats
 print("\nTorque Range Classification:")
 print(df_all['torque_range'].value_counts())
-
 print("\nAngle Range Classification:")
 print(df_all['angle_range'].value_counts())
 
-# Count per file and range category
+# Plotly visualization
 def build_chart(df, value_col, range_col, title):
     grouped = df.groupby(['source_file', range_col])[value_col].count().reset_index()
     pivot = grouped.pivot(index='source_file', columns=range_col, values=value_col).fillna(0)
@@ -97,7 +117,6 @@ def build_chart(df, value_col, range_col, title):
     )
     return fig
 
-# Build and show both interactive charts
 torque_fig = build_chart(df_all, '#028_Torque3', 'torque_range', 'Torque Entry Distribution per File')
 angle_fig = build_chart(df_all, '#032_Angle3', 'angle_range', 'Angle Entry Distribution per File')
 
