@@ -1,90 +1,108 @@
 import pandas as pd
 import time
 import matplotlib.pyplot as plt
+import os
 
-# File path (make sure it's valid for your system)
-file_path = r"C:\Users\S Jananii\OneDrive\Desktop\nokia\1.csv"
+file_paths = [
+    "1.csv", "2.csv", "3.csv", "4.csv", "5.csv", "6.csv", "7.csv",
+    *[f"synthetic_full_dataset_{i}.csv" for i in range(8, 32)]
+]
 
-# Load CSV
-df = pd.read_csv(file_path)
-
-# Column names
 TORQUE_COL = '#028_Torque3'
 ANGLE_COL = '#032_Angle3'
 
-# Alert thresholds
-TORQUE_LIMITS = (1.0, 100.0)
-ANGLE_LIMITS = (0.0, 3800.0)
+TORQUE_LIMITS = [1.0, 3.0]
+ANGLE_LIMITS = [3200.0, 5500.0]
 
-# Live data buffers
+torque_values = []
+angle_values = []
+
+plt.ion()
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
+fig.suptitle('Live Monitoring with AI-Adaptive Thresholds')
+
 torque_data = []
 angle_data = []
 x_data = []
 
-# Averages
-torque_sum = 0.0
-angle_sum = 0.0
 count = 0
 
-# Set up the plot
-plt.ion()  # Turn on interactive mode
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
-fig.suptitle('Live Monitoring: Torque3 & Angle3')
+for file_path in file_paths:
+    if not os.path.exists(file_path):
+        continue
 
-print("Starting AI-based live monitoring...\n")
+    df = pd.read_csv(file_path)
 
-for index, row in df.iterrows():
-    torque = row[TORQUE_COL]
-    angle = row[ANGLE_COL]
-    count += 1
+    if TORQUE_COL not in df.columns or ANGLE_COL not in df.columns:
+        continue
 
-    # Update sums and averages
-    torque_sum += torque
-    angle_sum += angle
-    torque_avg = torque_sum / count
-    angle_avg = angle_sum / count
+    for _, row in df.iterrows():
+        try:
+            torque = float(row[TORQUE_COL])
+            angle = float(row[ANGLE_COL])
+        except:
+            continue
 
-    # Add to data buffer
-    x_data.append(count)
-    torque_data.append(torque)
-    angle_data.append(angle)
+        count += 1
+        x_data.append(count)
+        torque_data.append(torque)
+        angle_data.append(angle)
+        torque_values.append(torque)
+        angle_values.append(angle)
 
-    # Check for alerts
-    torque_alert = not (TORQUE_LIMITS[0] <= torque <= TORQUE_LIMITS[1])
-    angle_alert = not (ANGLE_LIMITS[0] <= angle <= ANGLE_LIMITS[1])
+        if count > 20:
+            torque_series = pd.Series(torque_values[-100:])
+            angle_series = pd.Series(angle_values[-100:])
 
-    # Console output
-    print(f"[{count}] Torque3: {torque:.2f} | Angle3: {angle:.2f}")
-    print(f"     → Avg Torque3: {torque_avg:.2f} | Avg Angle3: {angle_avg:.2f}")
-    if torque_alert:
-        print("  ⚠️ WARNING: Torque3 value out of range!")
-    if angle_alert:
-        print("  ⚠️ WARNING: Angle3 value out of range!")
-    print("-" * 50)
+            torque_mean = torque_series.mean()
+            torque_std = torque_series.std()
+            angle_mean = angle_series.mean()
+            angle_std = angle_series.std()
 
-    # Clear and update plots
-    ax1.clear()
-    ax2.clear()
+            new_torque_limits = (torque_mean - 2 * torque_std, torque_mean + 2 * torque_std)
+            new_angle_limits = (angle_mean - 2 * angle_std, angle_mean + 2 * angle_std)
 
-    ax1.plot(x_data, torque_data, color='blue', label='Torque3')
-    ax1.axhline(TORQUE_LIMITS[0], color='red', linestyle='--', label='Min Limit')
-    ax1.axhline(TORQUE_LIMITS[1], color='red', linestyle='--', label='Max Limit')
-    ax1.set_title('Torque3 Live Plot')
-    ax1.set_ylabel('Torque3')
-    ax1.legend()
-    ax1.grid(True)
+            torque_lr = 0.05
+            angle_lr = 0.05
+            TORQUE_LIMITS[0] = (1 - torque_lr) * TORQUE_LIMITS[0] + torque_lr * new_torque_limits[0]
+            TORQUE_LIMITS[1] = (1 - torque_lr) * TORQUE_LIMITS[1] + torque_lr * new_torque_limits[1]
+            ANGLE_LIMITS[0] = (1 - angle_lr) * ANGLE_LIMITS[0] + angle_lr * new_angle_limits[0]
+            ANGLE_LIMITS[1] = (1 - angle_lr) * ANGLE_LIMITS[1] + angle_lr * new_angle_limits[1]
 
-    ax2.plot(x_data, angle_data, color='green', label='Angle3')
-    ax2.axhline(ANGLE_LIMITS[0], color='red', linestyle='--', label='Min Limit')
-    ax2.axhline(ANGLE_LIMITS[1], color='red', linestyle='--', label='Max Limit')
-    ax2.set_title('Angle3 Live Plot')
-    ax2.set_xlabel('Sample Count')
-    ax2.set_ylabel('Angle3')
-    ax2.legend()
-    ax2.grid(True)
+        torque_alert = not (TORQUE_LIMITS[0] <= torque <= TORQUE_LIMITS[1])
+        angle_alert = not (ANGLE_LIMITS[0] <= angle <= ANGLE_LIMITS[1])
 
-    plt.pause(0.1)  # Give time to render
-    time.sleep(0.3)  # Simulate live feed
+        print(f"[{count}] Torque3: {torque:.2f} | Angle3: {angle:.2f}")
+        if torque_alert:
+            print("  WARNING: Torque3 out of threshold")
+        if angle_alert:
+            print("  WARNING: Angle3 out of threshold")
+        print(f"  Current Torque Limits: {TORQUE_LIMITS[0]:.2f} to {TORQUE_LIMITS[1]:.2f}")
+        print(f"  Current Angle Limits: {ANGLE_LIMITS[0]:.2f} to {ANGLE_LIMITS[1]:.2f}")
+        print("-" * 50)
+
+        ax1.clear()
+        ax2.clear()
+
+        ax1.plot(x_data, torque_data, label='Torque3', color='blue')
+        ax1.axhline(TORQUE_LIMITS[0], color='orange', linestyle='--', label='Dynamic Min')
+        ax1.axhline(TORQUE_LIMITS[1], color='orange', linestyle='--', label='Dynamic Max')
+        ax1.set_title('Torque3 Live Plot')
+        ax1.set_ylabel('Torque3')
+        ax1.grid(True)
+        ax1.legend()
+
+        ax2.plot(x_data, angle_data, label='Angle3', color='green')
+        ax2.axhline(ANGLE_LIMITS[0], color='orange', linestyle='--', label='Dynamic Min')
+        ax2.axhline(ANGLE_LIMITS[1], color='orange', linestyle='--', label='Dynamic Max')
+        ax2.set_title('Angle3 Live Plot')
+        ax2.set_xlabel('Sample Count')
+        ax2.set_ylabel('Angle3')
+        ax2.grid(True)
+        ax2.legend()
+
+        plt.pause(0.1)
+        time.sleep(0.1)
 
 plt.ioff()
 plt.show()
